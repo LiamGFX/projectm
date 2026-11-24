@@ -2,11 +2,11 @@
 # ANGLE on Metal, static) and attaches it to a GitHub Release, so the SuperViewer2 iOS build can
 # download it with a SHA-256 check (like libmpv-darwin-build).
 #
-# Run: Actions -> projectM iOS -> Run workflow, pick the projectM tag and
+# Run: Actions -> iOS -> Run workflow, pick the projectM tag and
 # tick "publish" to attach the result to a release named sv-ios-<tag>.
 # Manual runs only: a tag push would check out upstream code that doesn't
 # contain this workflow file.
-name: projectM iOS
+name: iOS
 
 on:
   workflow_dispatch:
