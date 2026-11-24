@@ -30,6 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Upstream, not this fork: forks made with "copy the default branch
+          # only" have no upstream tags.
+          repository: projectM-visualizer/projectm
           ref: ${{ env.REF }}
           submodules: recursive  # projectm-eval lives in a submodule
           fetch-depth: 0
