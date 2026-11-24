@@ -1,0 +1,73 @@
+# SuperViewer2: builds libprojectM 4.x for iOS (arm64, OpenGL ES 3, static)
+# and attaches it to a GitHub Release, so the SuperViewer2 iOS build can
+# download it with a SHA-256 check (like libmpv-darwin-build).
+#
+# Run: Actions -> projectM iOS -> Run workflow, pick the projectM tag and
+# tick "publish" to attach the result to a release named sv-ios-<tag>.
+# Manual runs only: a tag push would check out upstream code that doesn't
+# contain this workflow file.
+name: projectM iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      projectm_ref:
+        description: projectM tag or commit to build
+        default: v4.1.4
+      publish:
+        description: Publish a GitHub Release (sv-ios-<tag>)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      REF: ${{ inputs.projectm_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+          submodules: recursive  # projectm-eval lives in a submodule
+          fetch-depth: 0
+
+      - name: Configure
+        run: |
+          # GLES: iOS has no desktop OpenGL; Apple's OpenGL ES 3.0 only.
+          # Static: one less framework to embed and sign in the app.
+          cmake -S . -B build -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DENABLE_GLES=ON \
+            -DENABLE_PLAYLIST=ON \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+
+      - name: Build and install
+        run: cmake --build build --config Release --target install
+
+      - name: Package
+        run: |
+          NAME=projectm-${REF}-ios-arm64-gles
+          tar -czf "$NAME.tar.gz" -C install .
+          shasum -a 256 "$NAME.tar.gz" | tee "$NAME.tar.gz.sha256"
+          echo "ASSET=$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: ${{ env.ASSET }}.tar.gz*
+
+      - name: Release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # --target: the release tag goes on this fork's default branch, since
+        # the checked-out upstream tag isn't a branch here.
+        run: gh release create "sv-ios-$REF" "$ASSET.tar.gz" "$ASSET.tar.gz.sha256" --repo "$GITHUB_REPOSITORY" --target "${{ github.event.repository.default_branch }}" --title "sv-ios-$REF" --notes "libprojectM for iOS (arm64, GLES 3, static), built from $REF."
