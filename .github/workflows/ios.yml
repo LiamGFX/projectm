@@ -1,5 +1,5 @@
-# SuperViewer2: builds libprojectM 4.x for iOS (arm64, OpenGL ES 3, static)
-# and attaches it to a GitHub Release, so the SuperViewer2 iOS build can
+# SuperViewer2: builds libprojectM 4.x for iOS (arm64, OpenGL ES 3 through
+# ANGLE on Metal, static) and attaches it to a GitHub Release, so the SuperViewer2 iOS build can
 # download it with a SHA-256 check (like libmpv-darwin-build).
 #
 # Run: Actions -> projectM iOS -> Run workflow, pick the projectM tag and
@@ -27,6 +27,10 @@ jobs:
     runs-on: macos-latest
     env:
       REF: ${{ inputs.projectm_ref }}
+      # ANGLE for iOS from LiamGFX/angle-ios (angle-ios.yml there). projectM
+      # compiles against its GLES3/KHR headers; the app embeds its frameworks.
+      ANGLE_URL: https://github.com/LiamGFX/angle-ios/releases/download/angle-ios-1f6526a566/angle-ios-arm64-1f6526a566.tar.gz
+      ANGLE_SHA256: 9c17f4fa02a70740c654c49364ede0b6d0f34319c90ebf8b8f6aa0ba18fc183c
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,9 +41,28 @@ jobs:
           submodules: recursive  # projectm-eval lives in a submodule
           fetch-depth: 0
 
+      - name: ANGLE
+        run: |
+          curl -fL "$ANGLE_URL" -o angle.tar.gz
+          echo "$ANGLE_SHA256  angle.tar.gz" | shasum -a 256 -c
+          mkdir -p "$RUNNER_TEMP/angle" && tar -xzf angle.tar.gz -C "$RUNNER_TEMP/angle"
+          echo "ANGLE=$RUNNER_TEMP/angle" >> "$GITHUB_ENV"
+
+      - name: Allow GLES on iOS
+        run: |
+          # projectM 4.1 stops GLES builds on anything but Linux/Android with a
+          # FATAL_ERROR; with ANGLE, iOS has a real GLES 3 + Khronos headers, so
+          # turn just that message into a STATUS line (works whether the message
+          # spans one line or several; build-time only, nothing else changes).
+          grep -n -B1 'only available for Linux' CMakeLists.txt
+          perl -0pi -e 's/FATAL_ERROR(\s+"OpenGL ES 3 support is currently only available for Linux)/STATUS$1/' CMakeLists.txt
+          grep -n -B1 'only available for Linux' CMakeLists.txt | grep -q STATUS
+
       - name: Configure
         run: |
-          # GLES: iOS has no desktop OpenGL; Apple's OpenGL ES 3.0 only.
+          # GLES: iOS has no desktop OpenGL. The OPENGL_* cache entries point
+          # projectM's GLES3 lookup at ANGLE's headers and library (same names
+          # as CMake's FindOpenGL; static lib, so the link happens in the app).
           # Static: one less framework to embed and sign in the app.
           cmake -S . -B build -G Xcode \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -48,6 +71,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$PWD/install" \
             -DBUILD_SHARED_LIBS=OFF \
             -DENABLE_GLES=ON \
+            -DOPENGL_GLES3_INCLUDE_DIR="$ANGLE/include" \
+            -DOPENGL_gles3_LIBRARY="$ANGLE/libGLESv2.xcframework/ios-arm64/libGLESv2.framework/libGLESv2" \
             -DENABLE_PLAYLIST=ON \
             -DBUILD_TESTING=OFF \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
@@ -57,7 +82,7 @@ jobs:
 
       - name: Package
         run: |
-          NAME=projectm-${REF}-ios-arm64-gles
+          NAME=projectm-${REF}-ios-arm64-angle
           tar -czf "$NAME.tar.gz" -C install .
           shasum -a 256 "$NAME.tar.gz" | tee "$NAME.tar.gz.sha256"
           echo "ASSET=$NAME" >> "$GITHUB_ENV"
@@ -73,4 +98,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # --target: the release tag goes on this fork's default branch, since
         # the checked-out upstream tag isn't a branch here.
-        run: gh release create "sv-ios-$REF" "$ASSET.tar.gz" "$ASSET.tar.gz.sha256" --repo "$GITHUB_REPOSITORY" --target "${{ github.event.repository.default_branch }}" --title "sv-ios-$REF" --notes "libprojectM for iOS (arm64, GLES 3, static), built from $REF."
+        run: gh release create "sv-ios-$REF" "$ASSET.tar.gz" "$ASSET.tar.gz.sha256" --repo "$GITHUB_REPOSITORY" --target "${{ github.event.repository.default_branch }}" --title "sv-ios-$REF" --notes "libprojectM for iOS (arm64, GLES 3 via ANGLE, static), built from $REF."
