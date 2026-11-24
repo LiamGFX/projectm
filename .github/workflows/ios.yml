@@ -57,6 +57,16 @@ jobs:
           grep -n -B1 'only available for Linux' CMakeLists.txt
           perl -0pi -e 's/FATAL_ERROR(\s+"OpenGL ES 3 support is currently only available for Linux)/STATUS$1/' CMakeLists.txt
           grep -n -B1 'only available for Linux' CMakeLists.txt | grep -q STATUS
+          # projectM's GL header picks <OpenGL/gl3.h> (macOS desktop GL) for
+          # every Apple target; make that branch skip GLES builds so iOS falls
+          # through to its <GLES3/gl3.h> branch (ANGLE's headers).
+          FILES=$(grep -rl 'OpenGL/gl3.h' src)
+          echo "$FILES"
+          for f in $FILES; do
+            perl -pi -e 's/^#\s*ifdef\s+__APPLE__\s*$/#if defined(__APPLE__)\n/; s/^(#\s*(?:el)?if\s+)defined\s*\(\s*__APPLE__\s*\)/$1(defined(__APPLE__) \&\& !defined(USE_GLES))/' "$f"
+            grep -n -B2 'OpenGL/gl3.h' "$f"
+            grep -q 'defined(__APPLE__) && !defined(USE_GLES)' "$f"
+          done
           # projectM's own FindOpenGL.cmake takes the Apple branch on iOS and
           # never makes an OpenGL::GLES3 target, so we provide that target
           # ourselves (header-only: projectM is static, the app links ANGLE).
