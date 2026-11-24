@@ -57,12 +57,26 @@ jobs:
           grep -n -B1 'only available for Linux' CMakeLists.txt
           perl -0pi -e 's/FATAL_ERROR(\s+"OpenGL ES 3 support is currently only available for Linux)/STATUS$1/' CMakeLists.txt
           grep -n -B1 'only available for Linux' CMakeLists.txt | grep -q STATUS
+          # projectM's own FindOpenGL.cmake takes the Apple branch on iOS and
+          # never makes an OpenGL::GLES3 target, so we provide that target
+          # ourselves (header-only: projectM is static, the app links ANGLE).
+          # CMAKE_PROJECT_INCLUDE runs right after project(), before the
+          # GLES3 check, and the "NOT TARGET" guard there then finds ours.
+          cat > "$RUNNER_TEMP/angle-gles3.cmake" <<EOF
+          if(NOT TARGET OpenGL::GLES3)
+            add_library(OpenGL::GLES3 INTERFACE IMPORTED)
+            set_target_properties(OpenGL::GLES3 PROPERTIES
+              INTERFACE_INCLUDE_DIRECTORIES "$ANGLE/include")
+          endif()
+          EOF
 
       - name: Configure
         run: |
           # GLES: iOS has no desktop OpenGL. The OPENGL_* cache entries point
-          # projectM's GLES3 lookup at ANGLE's headers and library (same names
-          # as CMake's FindOpenGL; static lib, so the link happens in the app).
+          # projectM's OpenGL lookup at ANGLE's headers and library: its Apple
+          # branch requires OPENGL_gl_LIBRARY + OPENGL_INCLUDE_DIR, the GLES3
+          # names are kept for its other branches (static lib, so the real
+          # link happens in the app).
           # Static: one less framework to embed and sign in the app.
           cmake -S . -B build -G Xcode \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -73,6 +87,9 @@ jobs:
             -DENABLE_GLES=ON \
             -DOPENGL_GLES3_INCLUDE_DIR="$ANGLE/include" \
             -DOPENGL_gles3_LIBRARY="$ANGLE/libGLESv2.xcframework/ios-arm64/libGLESv2.framework/libGLESv2" \
+            -DOPENGL_INCLUDE_DIR="$ANGLE/include" \
+            -DOPENGL_gl_LIBRARY="$ANGLE/libGLESv2.xcframework/ios-arm64/libGLESv2.framework/libGLESv2" \
+            -DCMAKE_PROJECT_INCLUDE="$RUNNER_TEMP/angle-gles3.cmake" \
             -DENABLE_PLAYLIST=ON \
             -DBUILD_TESTING=OFF \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
