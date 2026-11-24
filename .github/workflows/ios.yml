@@ -78,7 +78,10 @@ jobs:
           # names are kept for its other branches (static lib, so the real
           # link happens in the app).
           # Static: one less framework to embed and sign in the app.
-          cmake -S . -B build -G Xcode \
+          # Makefiles, not Xcode: projectm-eval attaches its Scanner.c custom
+          # command to two targets, which Xcode's new build system rejects.
+          cmake -S . -B build -G "Unix Makefiles" \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
@@ -91,11 +94,10 @@ jobs:
             -DOPENGL_gl_LIBRARY="$ANGLE/libGLESv2.xcframework/ios-arm64/libGLESv2.framework/libGLESv2" \
             -DCMAKE_PROJECT_INCLUDE="$RUNNER_TEMP/angle-gles3.cmake" \
             -DENABLE_PLAYLIST=ON \
-            -DBUILD_TESTING=OFF \
-            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+            -DBUILD_TESTING=OFF
 
       - name: Build and install
-        run: cmake --build build --config Release --target install
+        run: cmake --build build --target install -j "$(sysctl -n hw.ncpu)"
 
       - name: Package
         run: |
